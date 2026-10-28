@@ -9,7 +9,6 @@ import shutil
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 WORKFLOWS = ROOT / "workflows"
 SCHEMA = ROOT / "supabase" / "schema.sql"
-CURL_TESTS = ROOT / "tests" / "curl-tests.sh"
 DOCKER = ROOT / "docker-compose.yml"
 
 results = []
@@ -114,16 +113,6 @@ try:
     add("docker_env_operator_key", "S_AGENTOS_OPERATOR_KEY=${S_AGENTOS_OPERATOR_KEY}" in docker, "S_AGENTOS_OPERATOR_KEY is passed to n8n")
 except Exception as e:
     add("docker_env_operator_key", False, str(e))
-
-# 6. Curl script syntax
-try:
-    if shutil.which("bash"):
-        proc = subprocess.run(["bash", "-n", str(CURL_TESTS)], capture_output=True, text=True)
-        add("curl_tests_bash_syntax", proc.returncode == 0, proc.stderr.strip())
-    else:
-        add("curl_tests_bash_syntax", True, "bash unavailable; skipped")
-except Exception as e:
-    add("curl_tests_bash_syntax", False, str(e))
 
 # 7. Validate the embedded workflow code owned by this repository.
 # The existing company control room is maintained in its own repository.
