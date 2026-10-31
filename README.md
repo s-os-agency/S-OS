@@ -9,9 +9,9 @@ Part of the **Operator Stack**:
 
 | Repo | Role |
 |------|------|
-| **[S-OS](https://github.com/saifsoub/S-OS)** (this repo) | Commands, registry, approvals, memory |
-| **[n8n](https://github.com/saifsoub/n8n)** | Workflow runtime, Docker ops, integration templates |
-| **[AgentEmpire](https://github.com/saifsoub/AgentEmpire)** | Operator cockpit (dashboard, opportunities, briefings) |
+| **[S-OS](https://github.com/s-os-agency/S-OS)** (this repo) | Commands, registry, approvals, memory |
+| **[n8n](https://github.com/s-os-agency/n8n)** | Workflow runtime, Docker ops, integration templates |
+| **[AgentEmpire](https://github.com/s-os-agency/AgentEmpire)** | Operator cockpit (dashboard, opportunities, briefings) |
 
 See [docs/ECOSYSTEM.md](docs/ECOSYSTEM.md) for how the three fit together.
 
@@ -40,7 +40,7 @@ cp .env.example .env
 
 ### 2. Start runtime
 
-Use [saifsoub/n8n](https://github.com/saifsoub/n8n) for the Docker stack, **or** this repo’s `docker-compose.yml` if you run kernel-only:
+Use [saifsoub/n8n](https://github.com/s-os-agency/n8n) for the Docker stack, **or** this repo’s `docker-compose.yml` if you run kernel-only:
 
 ```bash
 docker compose up -d
