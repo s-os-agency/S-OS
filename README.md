@@ -3,14 +3,14 @@
 [![Kernel](https://img.shields.io/badge/kernel-v0.2.0-blue)](MANIFEST.json)
 [![Stack](https://img.shields.io/badge/stack-n8n%20%2B%20Supabase%20%2B%20Docker-0f766e)](docs/ECOSYSTEM.md)
 
-**S-OS** is the governed control plane for a solo operator running multiple agents, businesses, and automations. It is not a chat UI — it is the **command gateway**, **agent registry**, **telemetry**, and **evolution loop** that everything else plugs into.
+**S-OS** is the governed control panel for a solo operator running multiple agents, businesses, and automations. It is not a chat UI — it is the **command gateway**, **agent registry**, **system updates**, and **evolution loop** that everything else plugs into.
 
 Part of the **Operator Stack**:
 
 | Repo | Role |
 |------|------|
 | **[S-OS](https://github.com/s-os-agency/S-OS)** (this repo) | Commands, registry, approvals, memory |
-| **[n8n](https://github.com/s-os-agency/n8n)** | Workflow runtime, Docker ops, integration templates |
+| **[n8n](https://github.com/s-os-agency/n8n)** | Workflow system, Docker ops, integration templates |
 | **[AgentEmpire](https://github.com/s-os-agency/AgentEmpire)** | Operator cockpit (dashboard, opportunities, briefings) |
 
 See [docs/ECOSYSTEM.md](docs/ECOSYSTEM.md) for how the three fit together.
@@ -23,7 +23,7 @@ See [docs/ECOSYSTEM.md](docs/ECOSYSTEM.md) for how the three fit together.
 - **Safe defaults** — `draft`, `dry_run`, `read_only` until you explicitly approve `live`
 - **Agent registry** — create, list, evaluate, evolve agents with audit trail
 - **Supabase memory** — `os_commands`, `os_events`, idempotency, approval requests
-- **n8n workflows** — importable POST webhooks (gateway, registry, telemetry, evolution)
+- **n8n workflows** — importable POST webhooks (gateway, registry, system updates, evolution)
 - **Static QA** — schema validation, secret scan, workflow lint, GitHub Actions CI
 - **OpenAPI** — GPT Actions / external clients (`openapi/s-agentos-kernel-v0.2.0.openapi.yaml`)
 
@@ -38,7 +38,7 @@ cp .env.example .env
 # Set: N8N_*, SUPABASE_*, S_AGENTOS_OPERATOR_KEY (openssl rand -base64 32)
 ```
 
-### 2. Start runtime
+### 2. Start system
 
 Use [saifsoub/n8n](https://github.com/s-os-agency/n8n) for the Docker stack, **or** this repo’s `docker-compose.yml` if you run kernel-only:
 
