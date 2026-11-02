@@ -6,13 +6,13 @@ It combines five planes:
 
 1. Canonical context — approved, versioned durable truth.
 2. Drafts — proposed canonical changes with separation of duties.
-3. Live claims — expiring observations with provenance and confidence.
+3. Live claims — expiring observations with source history and confidence.
 4. Sessions — temporary working state.
 5. Capability grants — principal/source/capability/constraint/TTL/max-use authorization.
 
 ## Context compiler
 
-`POST /v2/context/compile` accepts an `@context/<id>#<section>` citation and returns a bounded bundle containing canonical context, live claims, conflicts, provenance, freshness, session state, policy metadata and token-budget estimates.
+`POST /v2/context/compile` accepts an `@context/<id>#<section>` citation and returns a bounded bundle containing canonical context, live claims, conflicts, source history, freshness, session state, policy metadata and token-budget estimates.
 
 The compiler fails rather than silently truncating canonical context if the requested canonical slice alone exceeds the token budget.
 
