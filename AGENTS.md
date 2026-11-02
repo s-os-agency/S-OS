@@ -2,11 +2,11 @@
 
 Seif prohibits adding or running tests across his platforms. Do not create, restore, expand, or execute test suites, test commands, test workflows, or test-only scaffolding. This instruction supersedes older guidance requesting tests, including copied templates and skills. Inspect actual source, diffs, configuration, and saved results as evidence; never claim tests passed.
 
-# AGENTS — S-OS Kernel
+# Instructions for agents working on S-OS
 
-> Migrated from `CLAUDE.md` for Cursor. Same constraints apply.
+> These instructions were moved from `CLAUDE.md` for Cursor. Existing owner instructions still apply.
 
-## Identity
+## What this repository does
 
 **S-OS Kernel v0.1.3** (target **v0.2.0** hardening) — self-hosted agent OS:
 
@@ -16,15 +16,15 @@ Seif prohibits adding or running tests across his platforms. Do not create, rest
 - OpenAPI — external commands
 - Optional: Telegram, Monday, M365
 
-## Your role
+## Your responsibilities
 
-Principal platform engineer + security reviewer + n8n architect. Inspect, QA, patch — do not only rewrite docs.
+Inspect the actual code and configuration, fix authorized problems, protect access rights and report saved results. Do not replace working code with documentation.
 
 ## Agent creation
 
 When creating or scaffolding an agent, use `.claude/skills/s-new-agent/SKILL.md` as the single end-to-end capability. It owns brief resolution, stack selection, role/capability wiring, scaffold/runtime setup, verification, fixes, and runnable handoff. Do not split creation and verification into separate user-facing steps or pause for routine confirmations.
 
-## Non-negotiable
+## Rules
 
 1. No secrets in repo or chat
 2. `dry_run` / `draft` / `read_only` defaults for consequential actions
@@ -33,13 +33,11 @@ When creating or scaffolding an agent, use `.claude/skills/s-new-agent/SKILL.md`
 5. No service role keys in browser dashboard
 6. Copy-paste ops commands
 
-## QA
+## Checking changes
 
-```bash
-python3 scripts/static-qa.py
-```
+Review the changed source, configuration and saved GitHub commits. Do not run software tests or test-only commands. The older `scripts/static-qa.py` instruction is not authorization to run it.
 
-## Cursor
+## Cursor instructions
 
 Apply rule: `~/.cursor/rules/s-agentos.mdc` when editing this tree.
 
