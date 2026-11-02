@@ -11,7 +11,7 @@
 - Inspect canonical README, source, existing diffs and deployments before changes. Make the smallest reversible implementation change required. Do not merely write plans or invent launch statuses.
 - The named lead is a proposed execution assignment, **not proof of an active external agent session**, OpenRouter invocation, or authority to use another agent's account. A reviewer is an independent second-pass assignment, not an approval already provided.
 - Use only scoped provider access actually available. No blind deployment, destructive migrations, new permissions, purchases or exposure of credentials. Preserve backups and rollback.
-- Attach evidence URL, UTC date, version/commit, deployed environment and observed result to the corresponding Exact Completion Gates row. Mark VERIFIED only for evidence-backed completion. Leave other gates OPEN; no fabricated real customer, revenue, PayPal or Ziina status.
+- Attach evidence URL, UTC date, version/commit, deployed environment and observed result to the corresponding work-item record. Mark VERIFIED only for evidence-backed completion. Leave other gates OPEN; no fabricated real customer, revenue, PayPal or Ziina status.
 - Production launch requires a provider-backed deployment receipt and actual live runtime observation, not a green document or UI screenshot.
 
 ## Exact execution order
@@ -52,6 +52,6 @@
 **Evidence required:** actual source/commit, environment, timestamp, direct output/receipt, and reviewer; record in sheet. **Initial state: OPEN.**
 
 ## Completion handoff
-Update each gate's verification state in Google Sheets and attach proof. Distinguish implementation from launch, customer acceptance from inquiries and settled payments from checkout creation. The lead produces the change receipt; the reviewer checks evidence independently. Do not announce completion until all required applicable gates pass. Report any unavoidable external authorization boundary specifically.
+Record completed work and evidence in the existing sheet when available. An unavailable sheet must not stop authorized implementation. Distinguish implementation from launch, customer acceptance from inquiries and settled payments from checkout creation. The lead produces the change receipt; the reviewer checks evidence independently. Report the requested outcome as complete only when its applicable acceptance criteria have direct evidence. Do not make unrelated commercial items or a proposed reviewer prerequisites for internal work. Report any unavoidable external authorization boundary specifically.
 
 **Agent document author:** GPT-6 (instructions only; not a launch attestation).
