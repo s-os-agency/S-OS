@@ -162,3 +162,12 @@ Canonical resources:
 - [ChatGPT plugin binding](plugins/openhuman/PLUGIN_BINDING.md)
 
 The invariant is simple: workers may specialize the work, but they may not rewrite the operator's original intent.
+
+
+## Shared Qwen Omni model
+
+The executable model package is in [models/qwen-omni](models/qwen-omni/README.md).
+It downloads the actual pinned weight files from the canonical GitHub Release,
+reassembles safetensors shards, and verifies SHA-256. It also includes the private
+GPU runtime and resource clients. Existing application routes and permissions
+are unchanged; GPU inference is not yet deployed or observed.
