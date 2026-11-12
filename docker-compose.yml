@@ -30,6 +30,9 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - S_OMNI_ENABLED=${S_OMNI_ENABLED:-false}
+      - S_OMNI_BASE_URL=${S_OMNI_BASE_URL:-}
+      - S_OMNI_BEARER_TOKEN=${S_OMNI_BEARER_TOKEN:-}
     volumes:
       - n8n_data:/home/node/.n8n
     depends_on:

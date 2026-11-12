@@ -182,7 +182,7 @@
         220
       ],
       "parameters": {
-        "jsCode": "// S/ AgentOS Kernel v0.2.0 — command router.\n//\n// Terminology:\n// \"server\" is the operator-owned or operator-leased host where the user's agents live.\n// This gateway is one service on that server; it is not the server itself.\n//\n// Important evidence boundary:\n// this workflow alone cannot establish whether server-level side effects are enabled,\n// disabled, available, or unavailable. It reports only what this gateway itself did.\nconst j = $input.first().json || {};\nconst c = j.command || {};\n\nconst routeByAction = {\n  health_check: \"kernel_health\",\n  create_agent: \"agent_registry\",\n  execute_task: \"task_executor\",\n  evaluate_agent: \"evaluation_engine\",\n  evolve_agent: \"evolution_engine\",\n  registry_sync: \"agent_registry\",\n  telemetry_log: \"telemetry_logger\",\n  list_agents: \"agent_registry\",\n  get_agent: \"agent_registry\",\n  update_agent_status: \"agent_registry\"\n};\n\nconst route = routeByAction[c.action] || \"unsupported\";\nconst safeModes = [\"draft\", \"dry_run\", \"read_only\"];\nconst liveRequested = c.run_mode === \"live\" && c.action !== \"health_check\";\n\nlet result = {};\nif (c.action === \"health_check\") {\n  result = {\n    status: \"gateway_available\",\n    server_status: \"not_checked_by_gateway\",\n    dispatch_status: \"not_checked_by_gateway\",\n    side_effects_status: \"not_checked_by_gateway\",\n    mode: \"command_gateway\",\n    provider_agnostic: true,\n    supported_actions: Object.keys(routeByAction)\n  };\n} else {\n  result = {\n    accepted_by_gateway: true,\n    gateway_status: \"route_resolved\",\n    planned_route: route,\n    safe_mode: safeModes.includes(c.run_mode),\n    server_execution_status: \"not_observed_by_gateway\",\n    side_effects_status: \"not_observed_by_gateway\",\n    next_step: liveRequested\n      ? \"Forward through the server's configured execution path and verify the resulting receipt there.\"\n      : \"Use the resolved route according to the requested run mode.\"\n  };\n}\n\nreturn [{ json: {\n  ok: true,\n  code: 200,\n  error: null,\n  system: \"S/ AgentOS\",\n  kernel_version: \"0.2.0\",\n  trace_id: c.trace_id,\n  command_id: c.command_id,\n  idempotency_key: c.idempotency_key,\n  action: c.action,\n  requested_by: c.requested_by,\n  priority: c.priority,\n  run_mode: c.run_mode,\n  approval_status: c.approval_status,\n  approval_required: c.approval_required,\n  route,\n  result\n}}];"
+        "jsCode": "// S/ AgentOS Kernel v0.2.0 — command router.\n//\n// Terminology:\n// \"server\" is the operator-owned or operator-leased host where the user's agents live.\n// This gateway is one service on that server; it is not the server itself.\n//\n// Important evidence boundary:\n// Except for explicit Omni responses, this workflow cannot establish whether server-level side effects are enabled,\n// disabled, available, or unavailable. It reports only what this gateway itself did.\nconst j = $input.first().json || {};\nconst c = j.command || {};\n\nconst routeByAction = {\n  health_check: \"kernel_health\",\n  create_agent: \"agent_registry\",\n  execute_task: \"task_executor\",\n  evaluate_agent: \"evaluation_engine\",\n  evolve_agent: \"evolution_engine\",\n  registry_sync: \"agent_registry\",\n  telemetry_log: \"telemetry_logger\",\n  list_agents: \"agent_registry\",\n  get_agent: \"agent_registry\",\n  update_agent_status: \"agent_registry\"\n};\n\nlet route = routeByAction[c.action] || \"unsupported\";\nconst safeModes = [\"draft\", \"dry_run\", \"read_only\"];\nconst liveRequested = c.run_mode === \"live\" && c.action !== \"health_check\";\n\nlet result = {};\nlet code = 200;\nlet omniDispatch = false;\nlet omniPayload = null;\nif (c.action === \"health_check\") {\n  result = {\n    status: \"gateway_available\",\n    server_status: \"not_checked_by_gateway\",\n    dispatch_status: \"not_checked_by_gateway\",\n    side_effects_status: \"not_checked_by_gateway\",\n    mode: \"command_gateway\",\n    provider_agnostic: true,\n    supported_actions: Object.keys(routeByAction)\n  };\n} else {\n  result = {\n    accepted_by_gateway: true,\n    gateway_status: \"route_resolved\",\n    planned_route: route,\n    safe_mode: safeModes.includes(c.run_mode),\n    server_execution_status: \"not_observed_by_gateway\",\n    side_effects_status: \"not_observed_by_gateway\",\n    next_step: liveRequested\n      ? \"Forward through the server's configured execution path and verify the resulting receipt there.\"\n      : \"Use the resolved route according to the requested run mode.\"\n  };\n}\n\nif (c.action === \"execute_task\" && c.context?.model_provider === \"qwen_omni\") {\n  route = \"qwen_omni\";\n  result = {\n    accepted_by_gateway: true,\n    planned_route: \"qwen_omni\",\n    dispatch_status: \"not_requested\",\n    inference_observed: false,\n  };\n  if (c.run_mode !== \"live\") {\n    result.dispatch_status = \"skipped_safe_mode\";\n  } else if (process.env.S_OMNI_ENABLED !== \"true\") {\n    code = 503;\n    result.dispatch_status = \"disabled\";\n  } else if (c.idempotency_key) {\n    code = 409;\n    result.dispatch_status = \"idempotency_not_supported\";\n  } else {\n    const base = String(process.env.S_OMNI_BASE_URL || \"\").trim();\n    const token = String(process.env.S_OMNI_BEARER_TOKEN || \"\").trim();\n    // Environment only: never accept a caller-selected URL or credentials.\n    const approvedHttps = /^https:\\/\\/[a-z0-9.-]+(?::[0-9]{1,5})?(?:\\/[a-z0-9._~%/-]*)?$/i.test(base);\n    const options = c.context.omni || {};\n    const maxTokens = options.max_tokens ?? 256;\n    const media = options.media ?? [];\n    const validOptions = options && typeof options === \"object\" && !Array.isArray(options)\n      && Object.keys(options).every(k => [\"media\", \"audio_output\", \"use_audio_in_video\", \"max_tokens\"].includes(k))\n      && Number.isInteger(maxTokens) && maxTokens >= 1 && maxTokens <= 512\n      && Array.isArray(media) && media.length <= 4\n      && media.every(m => m && typeof m === \"object\" && !Array.isArray(m)\n        && Object.keys(m).length === 2\n        && [\"image/png\", \"image/jpeg\", \"audio/wav\", \"audio/mpeg\", \"video/mp4\"].includes(m.mime_type)\n        && typeof m.data_base64 === \"string\" && m.data_base64.length > 0\n        && m.data_base64.length <= 11184812\n        && /^[A-Za-z0-9+/]*={0,2}$/.test(m.data_base64))\n      && media.reduce((total, m) => total + m.data_base64.length, 0) <= 22369624\n      && [\"audio_output\", \"use_audio_in_video\"].every(k => options[k] === undefined || typeof options[k] === \"boolean\");\n    if (!approvedHttps || !token) {\n      code = 503;\n      result.dispatch_status = \"configuration_required\";\n    } else if (c.objective.length > 16000 || !validOptions) {\n      code = 400;\n      result.dispatch_status = \"invalid_model_request\";\n    } else {\n      omniDispatch = true;\n      omniPayload = {\n        prompt: c.objective,\n        media,\n        audio_output: options.audio_output ?? false,\n        use_audio_in_video: options.use_audio_in_video ?? false,\n        max_tokens: maxTokens,\n      };\n      result.dispatch_status = \"pending\";\n    }\n  }\n}\n\nreturn [{ json: {\n  ok: code === 200,\n  code,\n  error: code === 200 ? null : result.dispatch_status,\n  ...(omniDispatch ? { omni_dispatch: true, omni_payload: omniPayload } : {}),\n  system: \"S/ AgentOS\",\n  kernel_version: \"0.2.0\",\n  trace_id: c.trace_id,\n  command_id: c.command_id,\n  idempotency_key: c.idempotency_key,\n  action: c.action,\n  requested_by: c.requested_by,\n  priority: c.priority,\n  run_mode: c.run_mode,\n  approval_status: c.approval_status,\n  approval_required: c.approval_required,\n  route,\n  result\n}}];"
       }
     },
     {
@@ -191,7 +191,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [
-        1380,
+        2100,
         220
       ],
       "parameters": {
@@ -208,6 +208,95 @@
           "responseCode": "={{ $json.code || 200 }}"
         },
         "respondWith": "json"
+      }
+    },
+    {
+      "id": "omni-dispatch-gate",
+      "name": "IF — Omni Dispatch?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1380,
+        220
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "omni-live-dispatch",
+              "leftValue": "={{ $json.omni_dispatch === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "omni-request",
+      "name": "HTTP — Omni Generate",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1620,
+        120
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.S_OMNI_BASE_URL.trim().replace(/\\/+$/, '') + '/v1/generate' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "={{ 'Bearer ' + $env.S_OMNI_BEARER_TOKEN.trim() }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.omni_payload) }}",
+        "options": {
+          "timeout": 180000,
+          "redirect": {
+            "redirect": {
+              "followRedirects": false
+            }
+          },
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true,
+              "responseFormat": "json"
+            }
+          }
+        }
+      },
+      "retryOnFail": false,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "omni-result",
+      "name": "Code — Omni Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1860,
+        120
+      ],
+      "parameters": {
+        "jsCode": "const envelope = { ...$('Code — Route Command').first().json };\ndelete envelope.omni_dispatch;\ndelete envelope.omni_payload;\nconst response = $input.first().json || {};\nconst body = response.body || {};\nconst valid = response.statusCode >= 200 && response.statusCode < 300\n  && body.model === \"Qwen/Qwen2.5-Omni-7B\"\n  && body.revision === \"ae9e1690543ffd5c0221dc27f79834d0294cba00\"\n  && typeof body.text === \"string\" && typeof body.id === \"string\" && body.id.length > 0;\nenvelope.ok = Boolean(valid);\nenvelope.code = valid ? 200 : 502;\nenvelope.error = valid ? null : \"omni_generation_failed\";\nenvelope.route = \"qwen_omni\";\nenvelope.result = valid ? {\n  dispatch_status: \"completed\",\n  inference_observed: true,\n  model: body.model,\n  revision: body.revision,\n  request_id: body.id,\n  text: body.text,\n  ...(body.audio && body.audio.mime_type === \"audio/wav\" && typeof body.audio.data_base64 === \"string\"\n    ? { audio: { mime_type: \"audio/wav\", sample_rate: body.audio.sample_rate, data_base64: body.audio.data_base64 } } : {}),\n} : {\n  dispatch_status: \"failed_or_unconfirmed\",\n  inference_observed: false,\n  message: \"No verified model response was received. Do not automatically retry; generation may have completed upstream.\",\n};\nreturn [{ json: envelope }];"
       }
     }
   ],
@@ -293,6 +382,46 @@
       ]
     },
     "Code — Route Command": {
+      "main": [
+        [
+          {
+            "node": "IF — Omni Dispatch?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF — Omni Dispatch?": {
+      "main": [
+        [
+          {
+            "node": "HTTP — Omni Generate",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond to Webhook — Command Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP — Omni Generate": {
+      "main": [
+        [
+          {
+            "node": "Code — Omni Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code — Omni Result": {
       "main": [
         [
           {
