@@ -202,6 +202,10 @@
               {
                 "name": "Content-Type",
                 "value": "application/json"
+              },
+              {
+                "name": "Cache-Control",
+                "value": "no-store"
               }
             ]
           },
@@ -296,7 +300,7 @@
         120
       ],
       "parameters": {
-        "jsCode": "const envelope = { ...$('Code — Route Command').first().json };\ndelete envelope.omni_dispatch;\ndelete envelope.omni_payload;\nconst response = $input.first().json || {};\nconst body = response.body || {};\nconst valid = response.statusCode >= 200 && response.statusCode < 300\n  && body.model === \"Qwen/Qwen2.5-Omni-7B\"\n  && body.revision === \"ae9e1690543ffd5c0221dc27f79834d0294cba00\"\n  && typeof body.text === \"string\" && typeof body.id === \"string\" && body.id.length > 0;\nenvelope.ok = Boolean(valid);\nenvelope.code = valid ? 200 : 502;\nenvelope.error = valid ? null : \"omni_generation_failed\";\nenvelope.route = \"qwen_omni\";\nenvelope.result = valid ? {\n  dispatch_status: \"completed\",\n  inference_observed: true,\n  model: body.model,\n  revision: body.revision,\n  request_id: body.id,\n  text: body.text,\n  ...(body.audio && body.audio.mime_type === \"audio/wav\" && typeof body.audio.data_base64 === \"string\"\n    ? { audio: { mime_type: \"audio/wav\", sample_rate: body.audio.sample_rate, data_base64: body.audio.data_base64 } } : {}),\n} : {\n  dispatch_status: \"failed_or_unconfirmed\",\n  inference_observed: false,\n  message: \"No verified model response was received. Do not automatically retry; generation may have completed upstream.\",\n};\nreturn [{ json: envelope }];"
+        "jsCode": "const envelope = { ...$('Code — Route Command').first().json };\nconst audioRequested = envelope.omni_payload?.audio_output === true;\ndelete envelope.omni_dispatch;\ndelete envelope.omni_payload;\nconst response = $input.first().json || {};\nconst body = response.body || {};\nconst audio = body.audio;\nconst validAudio = audio && audio.mime_type === \"audio/wav\" && audio.sample_rate === 24000\n  && typeof audio.data_base64 === \"string\" && audio.data_base64.length > 0\n  && audio.data_base64.length <= 12 * 1024 * 1024\n  && /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(audio.data_base64);\nconst valid = response.statusCode >= 200 && response.statusCode < 300\n  && body.model === \"Qwen/Qwen2.5-Omni-7B\"\n  && body.revision === \"ae9e1690543ffd5c0221dc27f79834d0294cba00\"\n  && typeof body.text === \"string\" && body.text.length <= 256000\n  && typeof body.id === \"string\" && body.id.length > 0 && body.id.length <= 128\n  && (!audioRequested || validAudio);\nenvelope.ok = Boolean(valid);\nenvelope.code = valid ? 200 : 502;\nenvelope.error = valid ? null : \"omni_generation_failed\";\nenvelope.route = \"qwen_omni\";\nenvelope.result = valid ? {\n  dispatch_status: \"completed\",\n  inference_observed: true,\n  model: body.model,\n  revision: body.revision,\n  request_id: body.id,\n  text: body.text,\n  ...(audioRequested ? { audio: { mime_type: \"audio/wav\", sample_rate: 24000, data_base64: audio.data_base64 } } : {}),\n} : {\n  dispatch_status: \"failed_or_unconfirmed\",\n  inference_observed: false,\n  message: \"No verified model response was received. Do not automatically retry; generation may have completed upstream.\",\n};\nreturn [{ json: envelope }];"
       }
     }
   ],
