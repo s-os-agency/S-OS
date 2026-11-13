@@ -86,17 +86,13 @@ jobs:
 
           SIGNAL=""
           CUTOFF_24H=$((NOW_TS - 86400))
-          FAILED=$(gh run list --status failure --limit 8 --json createdAt \
-            --jq --argjson cutoff "$CUTOFF_24H" \
-            '[.[] | select((.createdAt | fromdateiso8601) > $cutoff)] | length' 2>/dev/null || echo "0")
+          FAILED=$(gh run list --status failure --limit 8 --json createdAt 2>/dev/null | jq --argjson cutoff "$CUTOFF_24H" '[.[] | select((.createdAt | fromdateiso8601) > $cutoff)] | length' 2>/dev/null || echo "0")
           if [[ "$FAILED" =~ ^[0-9]+$ && "$FAILED" -gt 0 ]]; then
             SIGNAL="${SIGNAL}failed_runs=${FAILED};"
           fi
 
           CUTOFF_7D=$((NOW_TS - 604800))
-          STALE_PRS=$(gh pr list --state open --json number,updatedAt \
-            --jq --argjson cutoff "$CUTOFF_7D" \
-            '[.[] | select((.updatedAt | fromdateiso8601) < $cutoff)] | length' 2>/dev/null || echo "0")
+          STALE_PRS=$(gh pr list --state open --json number,updatedAt 2>/dev/null | jq --argjson cutoff "$CUTOFF_7D" '[.[] | select((.updatedAt | fromdateiso8601) < $cutoff)] | length' 2>/dev/null || echo "0")
           if [[ "$STALE_PRS" =~ ^[0-9]+$ && "$STALE_PRS" -gt 0 ]]; then
             SIGNAL="${SIGNAL}stale_prs=${STALE_PRS};"
           fi
@@ -110,7 +106,7 @@ jobs:
             SIGNAL="${SIGNAL}bot_down=${BOTDOWN};"
           fi
 
-          if git ls-files | grep -E '\.(env|pem|key|p12|pfx)$|credentials\.json|secrets\.ya?ml' >/dev/null 2>&1; then
+          if git ls-files | grep -E '\.(env|pem|key|p12|pfx)$|credentials\.json|secrets\.ya?ml|id_rsa|id_ed25519' >/dev/null 2>&1; then
             SIGNAL="${SIGNAL}possible_secrets_in_tree;"
           fi
 
