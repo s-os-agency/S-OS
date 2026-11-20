@@ -3,7 +3,8 @@ const http=require('http');
 const {ContextDB}=require('./db');
 const {compileContext}=require('./compiler');
 const {authenticate}=require('./identity');
-const PORT=Number(process.env.PORT||8787); const HOST=process.env.HOST||'0.0.0.0'; const db=new ContextDB();
+const {LiveControl}=require('./control');
+const PORT=Number(process.env.PORT||8787); const HOST=process.env.HOST||'0.0.0.0'; const db=new ContextDB(); const control=new LiveControl(db);
 function send(res,status,body){const data=JSON.stringify(body,null,2);res.writeHead(status,{'content-type':'application/json; charset=utf-8','content-length':Buffer.byteLength(data)});res.end(data);}
 function body(req){return new Promise((resolve,reject)=>{let s='';req.on('data',c=>{s+=c;if(s.length>1_000_000){reject(Object.assign(new Error('body_too_large'),{statusCode:413}));req.destroy();}});req.on('end',()=>{if(!s)return resolve({});try{resolve(JSON.parse(s));}catch{reject(Object.assign(new Error('invalid_json'),{statusCode:400}));}});req.on('error',reject);});}
 function requireAuth(req){const a=authenticate(req);if(!a.authenticated)throw Object.assign(new Error('unauthorized'),{statusCode:401});return a.principal;}
@@ -22,6 +23,14 @@ const server=http.createServer(async(req,res)=>{try{
   m=u.pathname.match(/^\/v2\/grants\/([^/]+)\/revoke$/); if(req.method==='POST'&&m){const p=requireOwner(req);return send(res,200,db.revokeGrant(m[1],p));}
   if(req.method==='POST'&&u.pathname==='/v2/sessions'){const p=requireAuth(req);return send(res,200,db.syncSession(await body(req),p));}
   if(req.method==='POST'&&u.pathname==='/v2/actions/record'){const p=requireAuth(req);return send(res,201,db.recordAction(await body(req),p));}
+  if(req.method==='POST'&&u.pathname==='/v2/control/publish'){const p=requireOwner(req);return send(res,201,control.publish(await body(req),p));}
+  if(req.method==='GET'&&u.pathname==='/v2/control/status'){requireOwner(req);return send(res,200,{deliveries:control.status()});}
+  m=u.pathname.match(/^\/v2\/control\/sessions\/([^/]+)\/(events|receipt)$/);
+  if(m){const p=requireAuth(req),id=decodeURIComponent(m[1]);
+    if(req.method==='GET'&&m[2]==='events')return control.stream(req,res,id,p);
+    if(req.method==='POST'&&m[2]==='receipt')return send(res,200,control.receipt(id,await body(req),p));
+  }
   return send(res,404,{error:'not_found'});
 }catch(e){return send(res,e.statusCode||500,{error:e.message});}});
 server.listen(PORT,HOST,()=>console.log(`S/Context v2 listening on ${HOST}:${PORT}`));
+
