@@ -21,6 +21,7 @@ SECRET_PATTERNS = [
     (re.compile(r"sk-ant-[A-Za-z0-9\-_]{20,}"), "Anthropic API key"),
     (re.compile(r"gsk_[A-Za-z0-9]{20,}"), "Groq API key"),
     (re.compile(r"eyJ[A-Za-z0-9+/=]{100,}"), "Supabase/JWT service-role key"),
+    (re.compile(r"eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}"), "JWT (header.payload.signature)"),
     (re.compile(r"\d{8,12}:[A-Za-z0-9\-_]{35,}"), "Telegram bot token"),
     (re.compile(r'(?<![a-z_])(password|secret|key|token)\s*[=:]\s*["\'](?!change-me|your-|<|CHANGE|sk-\.\.\.|eyJ\.\.\.)[A-Za-z0-9+/=_\-]{32,}["\']', re.IGNORECASE), "Hardcoded credential"),
     (re.compile(r"AKIA[A-Z0-9]{16}"), "AWS access key"),
@@ -31,6 +32,14 @@ SECRET_PATTERNS = [
 PLACEHOLDER_ALLOWLIST = re.compile(
     r"(change-me|your-|<your|YOUR_|sk-\.\.\.|sk-ant-\.\.\.|gsk_\.\.\.|eyJ\.\.\.|\.\.\.|PLACEHOLDER|example\.com|yourdomain\.com|your-project|your-service|your-operator-key|change-me-operator|change-me-strong|change-me-postgres)",
     re.IGNORECASE
+)
+
+# Inline binary payloads (fonts, images, audio, video) embedded as data: URIs are
+# base64 blobs that can randomly contain "eyJ..." runs. Strip only the payload of
+# those media data: URIs before matching; everything else on the line is still scanned.
+MEDIA_DATA_URI = re.compile(
+    r"data:(?:font|image|audio|video)/[A-Za-z0-9.+-]+(?:;[A-Za-z0-9=.+-]+)*;base64,[A-Za-z0-9+/=]+",
+    re.IGNORECASE,
 )
 
 findings = []
@@ -44,8 +53,9 @@ def scan_file(path: pathlib.Path):
     for lineno, line in enumerate(text.splitlines(), 1):
         if PLACEHOLDER_ALLOWLIST.search(line):
             continue
+        scan_line = MEDIA_DATA_URI.sub("data:<binary>", line)
         for pattern, label in SECRET_PATTERNS:
-            if pattern.search(line):
+            if pattern.search(scan_line):
                 findings.append((str(path.relative_to(ROOT)), lineno, label, line.strip()[:120]))
 
 
