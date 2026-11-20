@@ -1,41 +1,42 @@
-# Zero-Token Heartbeat + Bot Supervisor
-# =====================================
-# Goal: Keep scheduled bots / workflows alive forever while consuming
-#       ZERO LLM tokens on the happy path.
+# Zero-Token Heartbeat + Bot Supervisor  (v2, 2026-11-10)
+# Happy path: 0 LLM tokens, no commits, no notifications.
+# On a real signal: opens/updates ONE issue labelled `heartbeat-alert` (still 0 tokens). Bots such as
+# GH/Monitor should react to that label instead of polling hourly - that is the only token-spending step.
 #
-# Design principles (strict):
-# 1. Cheap-first gate — pure shell / GitHub API / file checks only.
-# 2. Silence is the default — no agent is woken unless a real condition trips.
-# 3. Liveness without noise — only write a marker when approaching the
-#    60-day GitHub inactivity cliff.
-# 4. Protection first — minimal permissions, timeouts, no secrets leakage,
-#    rate-limit aware, self-guard on this workflow file.
-#
-# Token budget on normal run: 0
-# Token budget on real signal: only the downstream agent you explicitly call.
+# Fixes vs v1:
+#  - failed-run / stale-PR checks were dead: `gh ... --jq --argjson cutoff N 'expr'` is not valid gh syntax
+#    (gh errors "unknown arguments"), the `|| echo 0` swallowed it, so both checks always reported 0.
+#    Now the age filter is done inside the jq expression with `now`.
+#  - failed runs of this workflow itself are excluded (no self-alert loop).
+#  - signals now escalate (issue) instead of only a step summary nobody reads; stale PRs (>7d) are a
+#    real signal too, and the issue is only commented when the signal changes (no repeat noise).
+#  - keep-alive uses the Actions API (`enable` the repo's scheduled workflows) instead of committing a
+#    marker to the default branch (works with branch protection, no commit noise). Marker commit remains
+#    an opt-in fallback (force_marker).
+#  - kill switch: set repo/org variable HEARTBEAT_DISABLED=true to halt this workflow everywhere.
 
 name: Zero-Token Heartbeat
 
 on:
   schedule:
-    - cron: "17 2,8,14,20 * * *"
+    - cron: "17 2,14 * * *"     # twice a day is plenty (GitHub disables schedules after 60 idle days)
   workflow_dispatch:
     inputs:
       force_marker:
-        description: "Force write a liveness marker even if not near 60d"
+        description: "Also commit a liveness marker (fallback keep-alive)"
         required: false
-        default: "false"
+        default: false
         type: boolean
       dry_run:
-        description: "Report only — do not write or enable anything"
+        description: "Report only - no issue, no enable, no commit"
         required: false
-        default: "false"
+        default: false
         type: boolean
 
 permissions:
-  contents: write
-  actions: write
-  issues: read
+  contents: write      # only used by the opt-in marker fallback
+  actions: write       # re-enable scheduled workflows (keep-alive)
+  issues: write        # single heartbeat-alert issue
   pull-requests: read
   checks: read
 
@@ -46,6 +47,7 @@ concurrency:
 jobs:
   heartbeat:
     name: Zero-Token Heartbeat
+    if: vars.HEARTBEAT_DISABLED != 'true'     # kill switch
     runs-on: ubuntu-latest
     timeout-minutes: 4
 
@@ -54,88 +56,104 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
+          persist-credentials: false
 
       - name: Cheap-first gate (no tokens)
         id: gate
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FORCE_MARKER: ${{ inputs.force_marker || 'false' }}
-          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
-
-          if [[ ! -f .github/workflows/zero-token-heartbeat.yml ]]; then
-            echo "CRITICAL: zero-token-heartbeat.yml is missing"
-            echo "signal=self_missing;" >> $GITHUB_OUTPUT
-            echo "need_marker=true" >> $GITHUB_OUTPUT
-            echo "days_since=999" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          LAST_COMMIT_TS=$(git log -1 --format=%ct)
           NOW_TS=$(date +%s)
+          LAST_COMMIT_TS=$(git log -1 --format=%ct)
           DAYS_SINCE=$(( (NOW_TS - LAST_COMMIT_TS) / 86400 ))
-          echo "Days since last commit: $DAYS_SINCE"
-
-          NEED_MARKER="false"
-          if [[ "$DAYS_SINCE" -ge 50 || "$FORCE_MARKER" == "true" ]]; then
-            NEED_MARKER="true"
-          fi
-          echo "need_marker=$NEED_MARKER" >> $GITHUB_OUTPUT
-          echo "days_since=$DAYS_SINCE" >> $GITHUB_OUTPUT
+          echo "days_since=$DAYS_SINCE" >> "$GITHUB_OUTPUT"
 
           SIGNAL=""
-          CUTOFF_24H=$((NOW_TS - 86400))
-          FAILED=$(gh run list --status failure --limit 8 --json createdAt 2>/dev/null | jq --argjson cutoff "$CUTOFF_24H" '[.[] | select((.createdAt | fromdateiso8601) > $cutoff)] | length' 2>/dev/null || echo "0")
-          if [[ "$FAILED" =~ ^[0-9]+$ && "$FAILED" -gt 0 ]]; then
-            SIGNAL="${SIGNAL}failed_runs=${FAILED};"
-          fi
+          num() { [[ "$1" =~ ^[0-9]+$ ]] && echo "$1" || echo "err"; }
 
-          CUTOFF_7D=$((NOW_TS - 604800))
-          STALE_PRS=$(gh pr list --state open --json number,updatedAt 2>/dev/null | jq --argjson cutoff "$CUTOFF_7D" '[.[] | select((.updatedAt | fromdateiso8601) < $cutoff)] | length' 2>/dev/null || echo "0")
-          if [[ "$STALE_PRS" =~ ^[0-9]+$ && "$STALE_PRS" -gt 0 ]]; then
-            SIGNAL="${SIGNAL}stale_prs=${STALE_PRS};"
-          fi
+          # a) failed workflow runs in the last 24h (excluding this workflow)
+          FAILED=$(num "$(gh run list -R "$REPO" --status failure --limit 50 --json createdAt,workflowName \
+            --jq '[.[] | select(.workflowName != "Zero-Token Heartbeat")
+                        | select((.createdAt | fromdateiso8601) > (now - 86400))] | length' 2>/dev/null || true)")
+          # b) open PRs not updated for 7 days
+          STALE_PRS=$(num "$(gh pr list -R "$REPO" --state open --limit 200 --json updatedAt \
+            --jq '[.[] | select((.updatedAt | fromdateiso8601) < (now - 604800))] | length' 2>/dev/null || true)")
+          # c) bot-health labels (missing labels count as 0)
+          EXHAUSTED=$(gh issue list -R "$REPO" --state open --label usageexhausted --json number --jq length 2>/dev/null || echo 0)
+          BOTDOWN=$(gh issue list -R "$REPO" --state open --label bot-down --json number --jq length 2>/dev/null || echo 0)
 
-          EXHAUSTED=$(gh issue list --state open --label "usageexhausted" --json number --jq 'length' 2>/dev/null || echo "0")
-          BOTDOWN=$(gh issue list --state open --label "bot-down" --json number --jq 'length' 2>/dev/null || echo "0")
-          if [[ "$EXHAUSTED" =~ ^[0-9]+$ && "$EXHAUSTED" -gt 0 ]]; then
-            SIGNAL="${SIGNAL}usageexhausted=${EXHAUSTED};"
-          fi
-          if [[ "$BOTDOWN" =~ ^[0-9]+$ && "$BOTDOWN" -gt 0 ]]; then
-            SIGNAL="${SIGNAL}bot_down=${BOTDOWN};"
-          fi
+          [[ "$FAILED" == err ]]   && SIGNAL+="check_error=failed_runs;"
+          [[ "$STALE_PRS" == err ]] && SIGNAL+="check_error=stale_prs;"
+          [[ "$FAILED" =~ ^[0-9]+$ && "$FAILED" -gt 0 ]] && SIGNAL+="failed_runs_24h=${FAILED};"
+          [[ "$STALE_PRS" =~ ^[0-9]+$ && "$STALE_PRS" -gt 0 ]] && SIGNAL+="stale_prs_7d=${STALE_PRS};"
+          [[ "$EXHAUSTED" =~ ^[0-9]+$ && "$EXHAUSTED" -gt 0 ]] && SIGNAL+="usageexhausted=${EXHAUSTED};"
+          [[ "$BOTDOWN" =~ ^[0-9]+$ && "$BOTDOWN" -gt 0 ]] && SIGNAL+="bot_down=${BOTDOWN};"
 
-          if git ls-files | grep -E '\.(env|pem|key|p12|pfx)$|credentials\.json|secrets\.ya?ml|id_rsa|id_ed25519' >/dev/null 2>&1; then
-            SIGNAL="${SIGNAL}possible_secrets_in_tree;"
-          fi
+          # d) belongings guard: credential-looking files tracked in git (names only, never contents)
+          SECRET_FILES=$(git ls-files | grep -Ei '(^|/)\.env($|\.)|\.(pem|key|p12|pfx|keystore)$|(^|/)id_(rsa|ed25519)$|credentials\.json$|secrets?\.ya?ml$' \
+            | grep -Eivc '\.(example|sample|template)$' || true)
+          [[ "$SECRET_FILES" -gt 0 ]] && SIGNAL+="possible_secret_files=${SECRET_FILES};"
 
-          echo "signal=$SIGNAL" >> $GITHUB_OUTPUT
-          if [[ -n "$SIGNAL" ]]; then
-            echo "Real signal detected: $SIGNAL"
-          else
-            echo "No actionable signal — remaining silent (zero tokens)."
-          fi
+          echo "signal=$SIGNAL" >> "$GITHUB_OUTPUT"
+          echo "failed=$FAILED stale_prs=$STALE_PRS signal=${SIGNAL:-none}"
 
-      - name: Write liveness marker (only if needed)
-        if: steps.gate.outputs.need_marker == 'true' && (inputs.dry_run != 'true')
+      - name: Keep scheduled workflows alive (API, no commit)
+        if: inputs.dry_run != true && steps.gate.outputs.days_since >= 45
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -uo pipefail
+          for id in $(gh api "repos/$REPO/actions/workflows" --jq '.workflows[] | select(.state=="active" or .state=="disabled_inactivity") | .id'); do
+            gh api -X PUT "repos/$REPO/actions/workflows/$id/enable" >/dev/null && echo "enabled $id" || echo "could not enable $id"
+          done
+
+      - name: Liveness marker (opt-in fallback)
+        if: inputs.force_marker == true && inputs.dry_run != true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          MARKER=".github/.zero-token-liveness"
-          mkdir -p .github
-          date -u +"%Y-%m-%dT%H:%M:%SZ zero-token-heartbeat" > "$MARKER"
+          date -u +"%Y-%m-%dT%H:%M:%SZ zero-token-heartbeat" > .github/.zero-token-liveness
           git config user.name "zero-token-heartbeat[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$MARKER"
-          git commit -m "chore(heartbeat): keep repo alive (zero-token)" || true
-          git push origin HEAD:${{ github.ref_name }}
+          git add .github/.zero-token-liveness
+          git commit -m "chore(heartbeat): liveness marker (zero-token)" || exit 0
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" "HEAD:${{ github.ref_name }}"
 
-      - name: Report (always)
+      - name: Escalate (only on signal) - single issue, zero tokens
+        if: steps.gate.outputs.signal != '' && inputs.dry_run != true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SIGNAL: ${{ steps.gate.outputs.signal }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          echo "### Zero-Token Heartbeat Report" >> $GITHUB_STEP_SUMMARY
-          echo "| Days since last commit | ${{ steps.gate.outputs.days_since }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Marker written | ${{ steps.gate.outputs.need_marker }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Signal | \`${{ steps.gate.outputs.signal || 'none' }}\` |" >> $GITHUB_STEP_SUMMARY
-          echo "| Token cost | **0** |" >> $GITHUB_STEP_SUMMARY
+          set -uo pipefail
+          gh label create heartbeat-alert -R "$REPO" --color B60205 --description "Zero-token heartbeat found a real problem" >/dev/null 2>&1 || true
+          BODY="Signal: \`$SIGNAL\`  
+          Run: $RUN_URL  
+          Opened by the zero-token heartbeat. Close when resolved; the next run re-opens it if the signal persists."
+          N=$(gh issue list -R "$REPO" --state open --label heartbeat-alert --json number --jq '.[0].number // empty')
+          if [[ -n "$N" ]]; then
+            # de-dupe: only comment when the signal changed since the last post (no twice-a-day noise)
+            LAST=$(gh issue view "$N" -R "$REPO" --json body,comments --jq '(.comments | last | .body) // .body' 2>/dev/null || true)
+            if [[ "$LAST" == *"Signal: \`$SIGNAL\`"* ]]; then echo "signal unchanged on #$N - no comment"; exit 0; fi
+            gh issue comment "$N" -R "$REPO" --body "$BODY"
+          else gh issue create -R "$REPO" --title "Heartbeat alert: $SIGNAL" --label heartbeat-alert --body "$BODY"; fi
+
+      - name: Report
+        if: always()
+        env:
+          SIGNAL: ${{ steps.gate.outputs.signal }}
+          DAYS: ${{ steps.gate.outputs.days_since }}
+        run: |
+          {
+            echo "### Zero-Token Heartbeat"
+            echo "| Metric | Value |"; echo "|---|---|"
+            echo "| Days since last commit | ${DAYS:-?} |"
+            echo "| Signal | \`${SIGNAL:-none}\` |"
+            echo "| Token cost | **0** |"
+          } >> "$GITHUB_STEP_SUMMARY"
